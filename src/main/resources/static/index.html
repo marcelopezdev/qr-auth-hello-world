@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Authentication</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.2/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+</head>
+<body>
+    <h1>QR Authentication</h1>
+    <div>
+        <img id="qrImage" alt="QR Code" />
+    </div>
+    <p id="status">Status: Waiting for QR Scan...</p>
+
+    <script>
+        let sessionId;
+        let timer;
+
+        async function fetchQRCode() {
+            const response = await fetch('/api/auth/generate');
+            const data = await response.json();
+
+            // Actualiza la imagen del QR
+            const qrUrl = `data:image/png;base64,${data.qrImage}`;
+            document.getElementById('qrImage').src = qrUrl;
+
+            sessionId = data.sessionId;
+
+            // Suscribe al estado del QR
+            subscribeToStatus(sessionId);
+
+            // Configura el temporizador para regenerar el QR
+            const expiresIn = new Date(data.expiresAt) - new Date();
+            startTimer(expiresIn);
+        }
+
+        function subscribeToStatus(sessionId) {
+            const socket = new SockJS('/ws');
+            const stompClient = Stomp.over(socket);
+
+            stompClient.connect({}, () => {
+                stompClient.subscribe(`/topic/auth-status/${sessionId}`, (message) => {
+                    document.getElementById('status').innerText = "Status: " + message.body;
+                    if (message.body === "Authenticated") {
+                        clearTimeout(timer); // Detiene el temporizador si se autentica antes de expirar
+                    }
+                });
+            });
+        }
+
+        function startTimer(duration) {
+            if (timer) {
+                clearTimeout(timer); // Limpia cualquier temporizador anterior
+            }
+
+            timer = setTimeout(() => {
+                document.getElementById('status').innerText = "Status: QR Code expired. Regenerating...";
+                fetchQRCode(); // Genera un nuevo QR automáticamente
+            }, duration);
+        }
+
+        fetchQRCode(); // Llama al inicio
+    </script>
+</body>
+</html>
